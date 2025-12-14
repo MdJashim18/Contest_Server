@@ -3,6 +3,7 @@ const cors = require('cors');
 const app = express();
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const stripe = require('stripe')(process.env.STRIPE_SECRET);
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
@@ -142,6 +143,44 @@ async function run() {
             res.send(result);
         }
         );
+
+
+
+
+
+
+
+        app.post('/create-checkout-session', async (req, res) => {
+            const paymentInfo = req.body;
+            const amount = parseInt(paymentInfo.cost) * 100;
+
+            const session = await stripe.checkout.sessions.create({
+                payment_method_types: ['card'],
+                line_items: [
+                    {
+                        price_data: {
+                            currency: "usd",
+                            unit_amount: amount,
+                            product_data: {
+                                name: `Contest Registration: ${paymentInfo.contestName}`
+                            }
+                        },
+                        quantity: 1,
+                    },
+                ],
+                customer_email: paymentInfo.userEmail, // ✅ correct key
+                mode: 'payment',
+                metadata: {
+                    contestId: paymentInfo.contestId,
+                    userEmail: paymentInfo.userEmail
+                },
+                success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+                cancel_url: `${process.env.SITE_DOMAIN}/payment-cancelled`,
+            });
+
+            res.send({ url: session.url });
+        });
+
 
 
     } finally {
