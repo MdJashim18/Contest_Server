@@ -76,20 +76,71 @@ async function run() {
             res.send(result);
         }
         );
-        app.patch("/contest/reject/:id", async (req, res) => {
-            const result = await contestCollection.updateOne(
-                { _id: new ObjectId(req.params.id) },
-                { $set: { status: "rejected" } }
+        // PATCH /contest/register/:id
+        app.patch("/contest/register/:id", async (req, res) => {
+            const { id } = req.params;
+            const { userId, userName } = req.body;
+
+            const contest = await contestCollection.findOne({ _id: new ObjectId(id) });
+            if (!contest) return res.status(404).send({ message: "Contest not found" });
+
+            // Check if already registered
+            const alreadyRegistered = contest.participants.find(p => p.userId === userId);
+            if (alreadyRegistered) return res.status(400).send({ message: "Already registered" });
+
+            const updated = await contestCollection.updateOne(
+                { _id: new ObjectId(id) },
+                {
+                    $inc: { participantsCount: 1 },
+                    $push: { participants: { userId, userName, registeredAt: new Date() } }
+                }
             );
+
+            res.send(updated);
+        });
+        // PATCH /contest/submit-task/:id
+        app.patch("/contest/submit-task/:id", async (req, res) => {
+            const { id } = req.params;
+            const { userId, taskSubmission } = req.body;
+
+            const contest = await contestCollection.findOne({ _id: new ObjectId(id) });
+            if (!contest) return res.status(404).send({ message: "Contest not found" });
+
+            const participants = contest.participants.map(p => {
+                if (p.userId === userId) {
+                    return { ...p, taskSubmission };
+                }
+                return p;
+            });
+
+            const updated = await contestCollection.updateOne(
+                { _id: new ObjectId(id) },
+                { $set: { participants } }
+            );
+
+            res.send(updated);
+        });
+        // PATCH /contest/winner/:id
+        app.patch("/contest/winner/:id", async (req, res) => {
+            const { id } = req.params;
+            const { userId, name, photo } = req.body;
+
+            const updated = await contestCollection.updateOne(
+                { _id: new ObjectId(id) },
+                { $set: { winner: { userId, name, photo } } }
+            );
+
+            res.send(updated);
+        });
+
+
+
+        app.delete("/contest/:id", async (req, res) => {
+            const result = await contestCollection.deleteOne({
+                _id: new ObjectId(req.params.id),
+            });
             res.send(result);
         }
-        );
-        app.delete("/contest/:id",async (req, res) => {
-                const result = await contestCollection.deleteOne({
-                    _id: new ObjectId(req.params.id),
-                });
-                res.send(result);
-            }
         );
 
 
