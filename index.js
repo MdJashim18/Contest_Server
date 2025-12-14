@@ -80,12 +80,12 @@ async function run() {
         // PATCH /contest/register/:id
         app.patch("/contest/register/:id", async (req, res) => {
             const { id } = req.params;
-            const { userId, userName } = req.body;
+            const { userId, userName, userEmail } = req.body;
 
             const contest = await contestCollection.findOne({ _id: new ObjectId(id) });
             if (!contest) return res.status(404).send({ message: "Contest not found" });
 
-            // Check if already registered
+            // Prevent double registration
             const alreadyRegistered = contest.participants.find(p => p.userId === userId);
             if (alreadyRegistered) return res.status(400).send({ message: "Already registered" });
 
@@ -93,12 +93,13 @@ async function run() {
                 { _id: new ObjectId(id) },
                 {
                     $inc: { participantsCount: 1 },
-                    $push: { participants: { userId, userName, registeredAt: new Date() } }
+                    $push: { participants: { userId, userName, userEmail, registeredAt: new Date() } }
                 }
             );
 
-            res.send(updated);
+            res.send({ status: "success", updated });
         });
+
         // PATCH /contest/submit-task/:id
         app.patch("/contest/submit-task/:id", async (req, res) => {
             const { id } = req.params;
@@ -150,6 +151,39 @@ async function run() {
 
 
 
+        // app.post('/create-checkout-session', async (req, res) => {
+        //     const paymentInfo = req.body
+        //     const amount = parseInt(paymentInfo.cost)*100
+
+        //     const session = await stripe.checkout.sessions.create({
+        //         line_items: [
+        //             {
+        //                 // Provide the exact Price ID (for example, price_1234) of the product you want to sell
+        //                 price_data: {
+        //                     currency : "USD",
+        //                     unit_amount : amount,
+        //                     product_data : {
+        //                         name : `Please pay for ${paymentInfo.parcelName}`
+        //                     }
+        //                 },
+
+        //                 quantity: 1,
+        //             },
+        //         ],
+        //         User_email:paymentInfo.email,
+        //         mode: 'payment',
+        //         metadata : {
+        //             contestId : paymentInfo._id
+        //         },
+        //         success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        //         cancel_url: `${process.env.SITE_DOMAIN}/payment-cancelled`,
+        //     });
+
+        //     console.log(session)
+        //     res.send({ url : session.url })
+        // })
+
+
         app.post('/create-checkout-session', async (req, res) => {
             const paymentInfo = req.body;
             const amount = parseInt(paymentInfo.cost) * 100;
@@ -159,19 +193,21 @@ async function run() {
                 line_items: [
                     {
                         price_data: {
-                            currency: "usd",
+                            currency: 'usd',
                             unit_amount: amount,
                             product_data: {
-                                name: `Contest Registration: ${paymentInfo.contestName}`
-                            }
+                                name: `Contest Registration: ${paymentInfo.contestName}`,
+                            },
                         },
                         quantity: 1,
                     },
                 ],
-                customer_email: paymentInfo.userEmail, // ✅ correct key
+                customer_email: paymentInfo.userEmail,
                 mode: 'payment',
                 metadata: {
                     contestId: paymentInfo.contestId,
+                    userId: paymentInfo.userId,
+                    userName: paymentInfo.userName,
                     userEmail: paymentInfo.userEmail
                 },
                 success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
@@ -180,6 +216,17 @@ async function run() {
 
             res.send({ url: session.url });
         });
+
+        app.get('/payment-session/:sessionId', async (req, res) => {
+            const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
+
+            res.send({
+                contestId: session.metadata.contestId,
+                userEmail: session.metadata.userEmail
+            });
+        });
+
+
 
 
 
