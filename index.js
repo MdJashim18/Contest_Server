@@ -1,45 +1,61 @@
 const express = require('express');
 const cors = require('cors');
-const app = express();
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const stripe = require('stripe')(process.env.STRIPE_SECRET);
+
+const app = express();
 const port = process.env.PORT || 3000;
 
-app.use(express.json());
+// ================= Middleware =================
 app.use(cors());
+app.use(express.json());
 
+// ================= MongoDB =================
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@mongo-simple-crud.tzwys72.mongodb.net/?appName=Mongo-simple-crud`;
+
 const client = new MongoClient(uri, {
-    serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true }
+    serverApi: {
+        version: ServerApiVersion.v1,
+        strict: true,
+        deprecationErrors: true,
+    },
 });
 
 async function run() {
     try {
         await client.connect();
-        console.log("Connected to MongoDB!");
+        console.log("✅ Connected to MongoDB");
 
         const db = client.db("contestHub");
         const usersCollection = db.collection("users");
-        const contestCollection = db.collection("contest")
+        const contestCollection = db.collection("contest");
 
-        // ================= POST new user =================
+        // ==================================================
+        // ================= USERS APIs =====================
+        // ==================================================
+
+        // Create user
         app.post("/users", async (req, res) => {
-            const user = req.body
-            user.role = "user"
-            user.createdAt = new Date()
+            const user = req.body;
+            user.role = "user";
+            user.createdAt = new Date();
 
-            const result = await usersCollection.insertOne(user)
-            res.send(result)
+            const result = await usersCollection.insertOne(user);
+            res.send(result);
         });
+
+        // Get all users (Admin)
         app.get("/users", async (req, res) => {
-            const cursor = usersCollection.find()
-            const result = await cursor.toArray()
-            res.send(result)
-        })
-        app.patch('/users/:id', async (req, res) => {
+            const result = await usersCollection.find().toArray();
+            res.send(result);
+        });
+
+        // Update user role (Admin)
+        app.patch("/users/:id", async (req, res) => {
             const { id } = req.params;
             const { role } = req.body;
+
             const result = await usersCollection.updateOne(
                 { _id: new ObjectId(id) },
                 { $set: { role } }
@@ -47,144 +63,203 @@ async function run() {
             res.send(result);
         });
 
+        // Get user profile
+        app.get("/users/profile", async (req, res) => {
+            const email = req.query.email;
+            if (!email) {
+                return res.status(400).send({ message: "Email required" });
+            }
+
+            const user = await usersCollection.findOne({ email });
+            res.send(user);
+        });
+
+       
+        app.patch('/users/profile/:id', async (req, res) => {
+            try {
+                const email = req.query.email || req.body.email;  // Support both
+                const { name, photoURL, address } = req.body;
+
+                if (!email) return res.status(400).send({ message: "Email required" });
+
+                const result = await usersCollection.updateOne(
+                    { email },
+                    { $set: { name, photoURL, address, updatedAt: new Date() } }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ message: "User not found" });
+                }
+
+                res.send(result);
+            } catch (err) {
+                console.error("Update profile error:", err);
+                res.status(500).send({ message: "Internal error" });
+            }
+        });
 
 
 
+
+
+        // ==================================================
+        // ================= CONTEST APIs ===================
+        // ==================================================
+
+        // Create contest
         app.post("/contest", async (req, res) => {
             const contest = req.body;
             contest.status = "pending";
-            contest.participants = 0;
+            contest.participants = [];
+            contest.participantsCount = 0;
             contest.createdAt = new Date();
+
             const result = await contestCollection.insertOne(contest);
             res.send(result);
-        })
-        app.get("/contest", async (req, res) => {
-            const cursor = contestCollection.find()
-            const result = await cursor.toArray()
-            res.send(result)
         });
+
+        // Get all contests
+        app.get("/contest", async (req, res) => {
+            const result = await contestCollection.find().toArray();
+            res.send(result);
+        });
+
+        // Get single contest
         app.get("/contest/:id", async (req, res) => {
             const contest = await contestCollection.findOne({
                 _id: new ObjectId(req.params.id),
             });
             res.send(contest);
         });
+
+        // Approve contest
         app.patch("/contest/approve/:id", async (req, res) => {
             const result = await contestCollection.updateOne(
                 { _id: new ObjectId(req.params.id) },
                 { $set: { status: "approved" } }
             );
             res.send(result);
-        }
-        );
-        // PATCH /contest/register/:id
+        });
+
+        // Register contest
         app.patch("/contest/register/:id", async (req, res) => {
             const { id } = req.params;
             const { userId, userName, userEmail } = req.body;
 
-            const contest = await contestCollection.findOne({ _id: new ObjectId(id) });
-            if (!contest) return res.status(404).send({ message: "Contest not found" });
+            const contest = await contestCollection.findOne({
+                _id: new ObjectId(id),
+            });
 
-            // Prevent double registration
-            const alreadyRegistered = contest.participants.find(p => p.userId === userId);
-            if (alreadyRegistered) return res.status(400).send({ message: "Already registered" });
+            if (!contest) {
+                return res.status(404).send({ message: "Contest not found" });
+            }
 
-            const updated = await contestCollection.updateOne(
+            const alreadyRegistered = contest.participants.find(
+                p => p.userId === userId
+            );
+
+            if (alreadyRegistered) {
+                return res.status(400).send({ message: "Already registered" });
+            }
+
+            const result = await contestCollection.updateOne(
                 { _id: new ObjectId(id) },
                 {
                     $inc: { participantsCount: 1 },
-                    $push: { participants: { userId, userName, userEmail, registeredAt: new Date() } }
+                    $push: {
+                        participants: {
+                            userId,
+                            userName,
+                            userEmail,
+                            registeredAt: new Date(),
+                        },
+                    },
                 }
             );
 
-            res.send({ status: "success", updated });
+            res.send(result);
         });
 
-        // PATCH /contest/submit-task/:id
+        // Submit contest task
         app.patch("/contest/submit-task/:id", async (req, res) => {
             const { id } = req.params;
             const { userId, taskSubmission } = req.body;
 
-            const contest = await contestCollection.findOne({ _id: new ObjectId(id) });
-            if (!contest) return res.status(404).send({ message: "Contest not found" });
-
-            const participants = contest.participants.map(p => {
-                if (p.userId === userId) {
-                    return { ...p, taskSubmission };
-                }
-                return p;
+            const contest = await contestCollection.findOne({
+                _id: new ObjectId(id),
             });
 
-            const updated = await contestCollection.updateOne(
-                { _id: new ObjectId(id) },
-                { $set: { participants } }
+            if (!contest) {
+                return res.status(404).send({ message: "Contest not found" });
+            }
+
+            const updatedParticipants = contest.participants.map(p =>
+                p.userId === userId
+                    ? { ...p, taskSubmission }
+                    : p
             );
 
-            res.send(updated);
+            const result = await contestCollection.updateOne(
+                { _id: new ObjectId(id) },
+                { $set: { participants: updatedParticipants } }
+            );
+
+            res.send(result);
         });
-        // PATCH /contest/winner/:id
+
+        // Set contest winner
         app.patch("/contest/winner/:id", async (req, res) => {
             const { id } = req.params;
-            const { userId, name, photo } = req.body;
+            const { userId, name, photo, userEmail } = req.body;
 
-            const updated = await contestCollection.updateOne(
+            const result = await contestCollection.updateOne(
                 { _id: new ObjectId(id) },
-                { $set: { winner: { userId, name, photo } } }
+                {
+                    $set: {
+                        winner: {
+                            userId,
+                            name,
+                            photo,
+                            userEmail,
+                        },
+                    },
+                }
             );
-
-            res.send(updated);
+            res.send(result);
         });
 
-
-
+        // Delete contest
         app.delete("/contest/:id", async (req, res) => {
             const result = await contestCollection.deleteOne({
                 _id: new ObjectId(req.params.id),
             });
             res.send(result);
-        }
-        );
+        });
 
+        // ==================================================
+        // ================= CONTEST STATS ==================
+        // ==================================================
 
+        // User contest stats (Pie Chart)
+        app.get("/contest-stats", async (req, res) => {
+            const email = req.query.email;
 
+            const participated = await contestCollection.countDocuments({
+                "participants.userEmail": email,
+            });
 
+            const won = await contestCollection.countDocuments({
+                "winner.userEmail": email,
+            });
 
+            res.send({ participated, won });
+        });
 
+        // ==================================================
+        // ================= STRIPE PAYMENT =================
+        // ==================================================
 
-        // app.post('/create-checkout-session', async (req, res) => {
-        //     const paymentInfo = req.body
-        //     const amount = parseInt(paymentInfo.cost)*100
-
-        //     const session = await stripe.checkout.sessions.create({
-        //         line_items: [
-        //             {
-        //                 // Provide the exact Price ID (for example, price_1234) of the product you want to sell
-        //                 price_data: {
-        //                     currency : "USD",
-        //                     unit_amount : amount,
-        //                     product_data : {
-        //                         name : `Please pay for ${paymentInfo.parcelName}`
-        //                     }
-        //                 },
-
-        //                 quantity: 1,
-        //             },
-        //         ],
-        //         User_email:paymentInfo.email,
-        //         mode: 'payment',
-        //         metadata : {
-        //             contestId : paymentInfo._id
-        //         },
-        //         success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        //         cancel_url: `${process.env.SITE_DOMAIN}/payment-cancelled`,
-        //     });
-
-        //     console.log(session)
-        //     res.send({ url : session.url })
-        // })
-
-
-        app.post('/create-checkout-session', async (req, res) => {
+        app.post("/create-checkout-session", async (req, res) => {
             const paymentInfo = req.body;
             const amount = parseInt(paymentInfo.cost) * 100;
 
@@ -208,7 +283,7 @@ async function run() {
                     contestId: paymentInfo.contestId,
                     userId: paymentInfo.userId,
                     userName: paymentInfo.userName,
-                    userEmail: paymentInfo.userEmail
+                    userEmail: paymentInfo.userEmail,
                 },
                 success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
                 cancel_url: `${process.env.SITE_DOMAIN}/payment-cancelled`,
@@ -217,29 +292,30 @@ async function run() {
             res.send({ url: session.url });
         });
 
-        app.get('/payment-session/:sessionId', async (req, res) => {
-            const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
+        // Payment success verify
+        app.get("/payment-session/:sessionId", async (req, res) => {
+            const session = await stripe.checkout.sessions.retrieve(
+                req.params.sessionId
+            );
 
             res.send({
                 contestId: session.metadata.contestId,
-                userEmail: session.metadata.userEmail
+                userEmail: session.metadata.userEmail,
             });
         });
 
-
-
-
-
     } finally {
-        // Do not close client to keep server running
+        // keep server running
     }
 }
+
 run().catch(console.dir);
 
-app.get('/', (req, res) => {
-    res.send('Contest Hub API');
+// ================= Root =================
+app.get("/", (req, res) => {
+    res.send("🚀 Contest Hub API Running");
 });
 
 app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+    console.log(`🚀 Server running on port ${port}`);
 });
