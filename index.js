@@ -131,19 +131,7 @@ async function run() {
             });
             res.send(contest);
         });
-        // app.get("/my-contest", async (req, res) => {
-        //     const email = req.query.email;
-
-        //     if (!email) {
-        //         return res.status(400).send({ message: "Email required" });
-        //     }
-
-        //     const result = await contestCollection
-        //         .find({ creatorEmail: email })
-        //         .toArray();
-
-        //     res.send(result);
-        // });
+        
 
         // Approve contest
         app.patch("/contest/approve/:id", async (req, res) => {
