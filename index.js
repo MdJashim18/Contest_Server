@@ -94,11 +94,7 @@ async function run() {
 
 
 
-        // ==================================================
-        // ================= CONTEST APIs ===================
-        // ==================================================
-
-        // Create contest
+       
         app.post("/contest", async (req, res) => {
             const contest = req.body;
             contest.status = "pending";
@@ -110,19 +106,17 @@ async function run() {
             res.send(result);
         });
 
-        // Get all contests
         app.get("/contest", async (req, res) => {
             try {
                 const { type, status } = req.query;
 
                 let query = {};
 
-                // Search by contest type
                 if (type) {
                     query.contestType = { $regex: type, $options: "i" };
                 }
 
-                // Optional: filter by status
+              
                 if (status) {
                     query.status = status;
                 }
@@ -136,14 +130,13 @@ async function run() {
         });
 
 
-        // Get single contest
         app.get("/contest/:id", async (req, res) => {
             const contest = await contestCollection.findOne({
                 _id: new ObjectId(req.params.id),
             });
             res.send(contest);
         });
-        // Update contest
+     
         app.patch("/contest/:id", async (req, res) => {
             try {
                 const { id } = req.params;
@@ -184,7 +177,6 @@ async function run() {
 
 
 
-        // Approve contest
         app.patch("/contest/approve/:id", async (req, res) => {
             const result = await contestCollection.updateOne(
                 { _id: new ObjectId(req.params.id) },
@@ -193,7 +185,6 @@ async function run() {
             res.send(result);
         });
 
-        // Register contest
         app.patch("/contest/register/:id", async (req, res) => {
             const { id } = req.params;
             const { userId, userName, userEmail } = req.body;
@@ -232,7 +223,6 @@ async function run() {
             res.send(result);
         });
 
-        // Submit contest task
         app.patch("/contest/submit-task/:id", async (req, res) => {
             try {
                 const { id } = req.params;
@@ -248,16 +238,13 @@ async function run() {
                     return res.status(404).send({ message: "Contest not found" });
                 }
 
-                // Initialize tasks object if not exist
                 const tasks = contest.tasks || {};
 
-                // Initialize task array if taskName not exist
                 if (!tasks[taskName]) tasks[taskName] = [];
 
-                // Add user's submission
+
                 const alreadySubmitted = tasks[taskName].some(t => t.userEmail === userEmail);
                 if (alreadySubmitted) {
-                    // Optional: Update existing submission
                     tasks[taskName] = tasks[taskName].map(t =>
                         t.userEmail === userEmail ? { userEmail, taskSubmission } : t
                     );
@@ -265,7 +252,6 @@ async function run() {
                     tasks[taskName].push({ userEmail, taskSubmission });
                 }
 
-                // Update in DB
                 const result = await contestCollection.updateOne(
                     { _id: new ObjectId(id) },
                     { $set: { tasks } }
@@ -279,8 +265,6 @@ async function run() {
         });
 
 
-        // Set contest winner
-        // ================= Set Contest Winner =================
         app.patch("/contest/winner/:id", async (req, res) => {
             try {
                 const { id } = req.params;
@@ -312,7 +296,6 @@ async function run() {
         });
 
 
-        // Delete contest
         app.delete("/contest/:id", async (req, res) => {
             const result = await contestCollection.deleteOne({
                 _id: new ObjectId(req.params.id),
