@@ -303,11 +303,6 @@ async function run() {
             res.send(result);
         });
 
-        // ==================================================
-        // ================= CONTEST STATS ==================
-        // ==================================================
-
-        // User contest stats (Pie Chart)
         app.get("/contest-stats", async (req, res) => {
             const email = req.query.email;
 
@@ -321,10 +316,6 @@ async function run() {
 
             res.send({ participated, won });
         });
-
-        // ==================================================
-        // ================= STRIPE PAYMENT =================
-        // ==================================================
 
         app.post("/create-checkout-session", async (req, res) => {
             try {
@@ -369,8 +360,6 @@ async function run() {
             }
         });
 
-
-        // Payment success verify
         app.get("/payment-session/:sessionId", async (req, res) => {
             const session = await stripe.checkout.sessions.retrieve(
                 req.params.sessionId
@@ -383,17 +372,15 @@ async function run() {
         });
 
     } finally {
-        // keep server running
     }
 }
 
 run().catch(console.dir);
 
-// ================= Root =================
 app.get("/", (req, res) => {
-    res.send("🚀 Contest Hub API Running");
+    res.send("Contest Hub API Running");
 });
 
 app.listen(port, () => {
-    console.log(`🚀 Server running on port ${port}`);
+    console.log(` Server running on port ${port}`);
 });
