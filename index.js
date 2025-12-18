@@ -120,9 +120,29 @@ async function run() {
 
         // Get all contests
         app.get("/contest", async (req, res) => {
-            const result = await contestCollection.find().toArray();
-            res.send(result);
+            try {
+                const { type, status } = req.query;
+
+                let query = {};
+
+                // Search by contest type
+                if (type) {
+                    query.contestType = { $regex: type, $options: "i" };
+                }
+
+                // Optional: filter by status
+                if (status) {
+                    query.status = status;
+                }
+
+                const contests = await contestCollection.find(query).toArray();
+                res.send(contests);
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: "Failed to fetch contests" });
+            }
         });
+
 
         // Get single contest
         app.get("/contest/:id", async (req, res) => {
@@ -131,7 +151,46 @@ async function run() {
             });
             res.send(contest);
         });
-        
+        // Update contest
+        app.patch("/contest/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const {
+                    name,
+                    image,
+                    description,
+                    price,
+                    prizeMoney,
+                    taskInstruction,
+                    contestType,
+                    deadline,
+                } = req.body;
+
+                const result = await contestCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $set: {
+                            name,
+                            image,
+                            description,
+                            price,
+                            prizeMoney,
+                            taskInstruction,
+                            contestType,
+                            deadline,
+                            updatedAt: new Date(),
+                        },
+                    }
+                );
+
+                res.send(result);
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: "Failed to update contest" });
+            }
+        });
+
+
 
         // Approve contest
         app.patch("/contest/approve/:id", async (req, res) => {
@@ -229,25 +288,37 @@ async function run() {
 
 
         // Set contest winner
+        // ================= Set Contest Winner =================
         app.patch("/contest/winner/:id", async (req, res) => {
-            const { id } = req.params;
-            const { userId, name, photo, userEmail } = req.body;
+            try {
+                const { id } = req.params;
+                const { userEmail, position, reward } = req.body;
 
-            const result = await contestCollection.updateOne(
-                { _id: new ObjectId(id) },
-                {
-                    $set: {
-                        winner: {
-                            userId,
-                            name,
-                            photo,
-                            userEmail,
-                        },
-                    },
+                if (!userEmail || !position || !reward) {
+                    return res.status(400).send({ message: "All fields required" });
                 }
-            );
-            res.send(result);
+
+                const result = await contestCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $set: {
+                            winner: {
+                                userEmail,
+                                position,
+                                reward,
+                                selectedAt: new Date(),
+                            },
+                        },
+                    }
+                );
+
+                res.send(result);
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: "Failed to set winner" });
+            }
         });
+
 
         // Delete contest
         app.delete("/contest/:id", async (req, res) => {
@@ -281,37 +352,48 @@ async function run() {
         // ==================================================
 
         app.post("/create-checkout-session", async (req, res) => {
-            const paymentInfo = req.body;
-            const amount = parseInt(paymentInfo.cost) * 100;
+            try {
+                const paymentInfo = req.body;
 
-            const session = await stripe.checkout.sessions.create({
-                payment_method_types: ['card'],
-                line_items: [
-                    {
-                        price_data: {
-                            currency: 'usd',
-                            unit_amount: amount,
-                            product_data: {
-                                name: `Contest Registration: ${paymentInfo.contestName}`,
+                if (!paymentInfo?.cost) {
+                    return res.status(400).send({ error: "Cost missing" });
+                }
+
+                const amount = Number(paymentInfo.cost) * 100;
+
+                const session = await stripe.checkout.sessions.create({
+                    payment_method_types: ["card"],
+                    line_items: [
+                        {
+                            price_data: {
+                                currency: "usd",
+                                unit_amount: amount,
+                                product_data: {
+                                    name: `Contest Registration: ${paymentInfo.contestName}`,
+                                },
                             },
+                            quantity: 1,
                         },
-                        quantity: 1,
+                    ],
+                    customer_email: paymentInfo.userEmail,
+                    mode: "payment",
+                    metadata: {
+                        contestId: paymentInfo.contestId,
+                        userId: paymentInfo.userId,
+                        userName: paymentInfo.userName,
+                        userEmail: paymentInfo.userEmail,
                     },
-                ],
-                customer_email: paymentInfo.userEmail,
-                mode: 'payment',
-                metadata: {
-                    contestId: paymentInfo.contestId,
-                    userId: paymentInfo.userId,
-                    userName: paymentInfo.userName,
-                    userEmail: paymentInfo.userEmail,
-                },
-                success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-                cancel_url: `${process.env.SITE_DOMAIN}/payment-cancelled`,
-            });
+                    success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+                    cancel_url: `${process.env.SITE_DOMAIN}/payment-cancelled`,
+                });
 
-            res.send({ url: session.url });
+                res.send({ url: session.url });
+            } catch (error) {
+                console.error("Stripe Error:", error.message);
+                res.status(500).send({ error: error.message });
+            }
         });
+
 
         // Payment success verify
         app.get("/payment-session/:sessionId", async (req, res) => {
