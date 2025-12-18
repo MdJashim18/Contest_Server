@@ -7,11 +7,10 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET);
 const app = express();
 const port = process.env.PORT || 3000;
 
-// ================= Middleware =================
+
 app.use(cors());
 app.use(express.json());
 
-// ================= MongoDB =================
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@mongo-simple-crud.tzwys72.mongodb.net/?appName=Mongo-simple-crud`;
 
 const client = new MongoClient(uri, {
@@ -31,11 +30,7 @@ async function run() {
         const usersCollection = db.collection("users");
         const contestCollection = db.collection("contest");
 
-        // ==================================================
-        // ================= USERS APIs =====================
-        // ==================================================
-
-        // Create user
+        
         app.post("/users", async (req, res) => {
             const user = req.body;
             user.role = "user";
@@ -45,13 +40,11 @@ async function run() {
             res.send(result);
         });
 
-        // Get all users (Admin)
         app.get("/users", async (req, res) => {
             const result = await usersCollection.find().toArray();
             res.send(result);
         });
 
-        // Update user role (Admin)
         app.patch("/users/:id", async (req, res) => {
             const { id } = req.params;
             const { role } = req.body;
@@ -63,7 +56,6 @@ async function run() {
             res.send(result);
         });
 
-        // Get user profile
         app.get("/users/profile", async (req, res) => {
             const email = req.query.email;
             if (!email) {
@@ -77,7 +69,7 @@ async function run() {
 
         app.patch('/users/profile/:id', async (req, res) => {
             try {
-                const email = req.query.email || req.body.email;  // Support both
+                const email = req.query.email || req.body.email; 
                 const { name, photoURL, address } = req.body;
 
                 if (!email) return res.status(400).send({ message: "Email required" });
