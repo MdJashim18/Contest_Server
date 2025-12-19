@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
+const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const stripe = require('stripe')(process.env.STRIPE_SECRET);
 
@@ -21,16 +22,41 @@ const client = new MongoClient(uri, {
     },
 });
 
+
+const verifyJWTToken = (req, res, next) => {
+    const authorization = req.headers.authorization;
+    if (!authorization) {
+        return res.status(401).send({ message: 'Unauthorized Access' });
+    }
+
+    const token = authorization.split(" ")[1];
+
+    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(401).send({ message: 'Unauthorized Access' });
+        }
+        req.token_email = decoded.email;
+        next();
+    });
+};
+
+
 async function run() {
     try {
         await client.connect();
-        console.log("✅ Connected to MongoDB");
+        console.log(" Connected to MongoDB");
 
         const db = client.db("contestHub");
         const usersCollection = db.collection("users");
         const contestCollection = db.collection("contest");
 
-        
+        app.post("/getToken", async (req, res) => {
+            const loggedUser = req.body
+            const token = jwt.sign(loggedUser, process.env.JWT_SECRET, { expiresIn: '7d' })
+            res.send({ token: token })
+        });
+
+
         app.post("/users", async (req, res) => {
             const user = req.body;
             user.role = "user";
@@ -39,6 +65,39 @@ async function run() {
             const result = await usersCollection.insertOne(user);
             res.send(result);
         });
+        app.patch('/users/profile/:email', async (req, res) => {
+            try {
+                const email = req.params.email;
+                const { name, photoURL, address } = req.body;
+
+                if (!email) {
+                    return res.status(400).send({ message: "Email required" });
+                }
+
+                const result = await usersCollection.updateOne(
+                    { email },
+                    {
+                        $set: {
+                            name,
+                            photoURL,
+                            address,
+                            updatedAt: new Date()
+                        }
+                    }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ message: "User not found" });
+                }
+
+                res.send(result);
+
+            } catch (err) {
+                console.error("Update profile error:", err);
+                res.status(500).send({ message: "Internal error" });
+            }
+        });
+
 
         app.get("/users", async (req, res) => {
             const result = await usersCollection.find().toArray();
@@ -67,34 +126,9 @@ async function run() {
         });
 
 
-        app.patch('/users/profile/:id', async (req, res) => {
-            try {
-                const email = req.query.email || req.body.email; 
-                const { name, photoURL, address } = req.body;
-
-                if (!email) return res.status(400).send({ message: "Email required" });
-
-                const result = await usersCollection.updateOne(
-                    { email },
-                    { $set: { name, photoURL, address, updatedAt: new Date() } }
-                );
-
-                if (result.matchedCount === 0) {
-                    return res.status(404).send({ message: "User not found" });
-                }
-
-                res.send(result);
-            } catch (err) {
-                console.error("Update profile error:", err);
-                res.status(500).send({ message: "Internal error" });
-            }
-        });
 
 
 
-
-
-       
         app.post("/contest", async (req, res) => {
             const contest = req.body;
             contest.status = "pending";
@@ -106,20 +140,51 @@ async function run() {
             res.send(result);
         });
 
-        app.get("/contest", async (req, res) => {
+        app.get("/contest", verifyJWTToken, async (req, res) => {
             try {
-                const { type, status } = req.query;
+                const userEmail = req.token_email;
 
+
+                const user = await usersCollection.findOne({ email: userEmail });
+
+                const { type, status } = req.query;
                 let query = {};
 
+                if (user?.role === "admin") {
+                    query = {};
+                }
+                else if (user?.role === "creator") {
+                    query.creatorEmail = userEmail;
+                }
+                else if (user?.role === "user") {
+                    query = { "participants.userEmail": userEmail };
+                }
+                else {
+                    return res.status(403).send({ message: "Forbidden" });
+                }
                 if (type) {
                     query.contestType = { $regex: type, $options: "i" };
                 }
-
-              
                 if (status) {
                     query.status = status;
                 }
+
+                const contests = await contestCollection.find(query).toArray();
+                res.send(contests);
+
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: "Failed to fetch contests" });
+            }
+        });
+
+        app.get("/public-contest", async (req, res) => {
+            try {
+                const { type, status } = req.query;
+
+                let query = { status: "approved" };
+                if (type) query.contestType = { $regex: type, $options: "i" };
+
 
                 const contests = await contestCollection.find(query).toArray();
                 res.send(contests);
@@ -130,13 +195,15 @@ async function run() {
         });
 
 
+
+
         app.get("/contest/:id", async (req, res) => {
             const contest = await contestCollection.findOne({
                 _id: new ObjectId(req.params.id),
             });
             res.send(contest);
         });
-     
+
         app.patch("/contest/:id", async (req, res) => {
             try {
                 const { id } = req.params;
@@ -184,6 +251,14 @@ async function run() {
             );
             res.send(result);
         });
+        app.patch("/contest/reject/:id", async (req, res) => {
+            const result = await contestCollection.updateOne(
+                { _id: new ObjectId(req.params.id) },
+                { $set: { status: "rejected" } }
+            );
+            res.send(result);
+        });
+
 
         app.patch("/contest/register/:id", async (req, res) => {
             const { id } = req.params;
